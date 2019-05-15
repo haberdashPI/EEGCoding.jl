@@ -3,6 +3,21 @@ uuid = "a3ac80cb-4849-5e7e-ba5e-ae4fcff51f26"
 authors = ["David Little <david.frank.little@gmail.com>"]
 version = "0.1.0"
 
+[deps]
+MATLAB = "10e44e05-a98a-55b3-a45b-ba969058deb6"
+ProximalAlgorithms = "140ffc9f-1907-541a-a177-7475e0a401e9"
+ProximalOperators = "a725b495-10eb-56fe-b38b-717eba820537"
+SampledSignals = "bd7594eb-a658-542f-9e75-4c4d8908c167"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+
+[compat]
+julia = "0.7,1"
+MATLAB = "0.7"
+ProximalAlgorithms = "0.2"
+ProximalOperators = "0.10"
+SampledSignals = "2.0"
+Unitful = "0.15"
+
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
