@@ -1,5 +1,8 @@
 module EEGCoding
+using MATLAB, SampledSignals
 
-greet() = print("Hello World!")
+include("eeg.jl")
+include("static.jl")
+include("online.jl")
 
 end # module
