@@ -4,6 +4,7 @@ authors = ["David Little <david.frank.little@gmail.com>"]
 version = "0.1.0"
 
 [deps]
+BSON = "fbb218c0-5317-5bc6-957e-2ee96dd4b1f0"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MATLAB = "10e44e05-a98a-55b3-a45b-ba969058deb6"
@@ -17,6 +18,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
+BSON = "0.2"
 DataFrames = "0.18"
 MATLAB = "0.7"
 ProgressMeter = "0.9"

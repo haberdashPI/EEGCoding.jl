@@ -2,6 +2,8 @@ using ProximalOperators
 using ProximalAlgorithms
 using Unitful
 using SampledSignals
+using LinearAlgebra
+using ProgressMeter
 
 # TODO: preprcoessing, add lag and add intercept
 
@@ -34,15 +36,14 @@ end # see full defintion below
 
 # defines the objective of optimization
 struct Objective <: ProximalOperators.Quadratic
-    # sum(i -> λ^i*X[i]'X[i],1:t), where X[i] is input at step i
-    A::Matrix{Float64}
-    # sum(i -> λ^i*y[i]'X[i],1:t), where y[i] is output at step i
+    A::Symmetric{Float64,Matrix{Float64}}
     b::Matrix{Float64}
-    # model solution
     θ::Matrix{Float64}
-    function Objective(y::Union{Vector,Matrix},X::Matrix)
+    function Objective(y::Union{AbstractVector,AbstractMatrix},
+        X::AbstractMatrix)
+
         new(
-            zeros(size(X,2),size(X,2)),
+            Symmetric(zeros(size(X,2),size(X,2))),
             zeros(size(y,2),size(X,2)),
             zeros(size(X,2),size(y,2))
         )
@@ -53,13 +54,14 @@ ProximalOperators.fun_expr(f::Objective) = "x ↦ x'Ax - 2bx"
 ProximalOperators.fun_params(f::Objective) = "" # parameters will be too large...
 
 function update!(f::Objective,y,X,λ)
-    f.A .*= λ; f.A .+= X'X
-    f.b .*= λ; f.b .+= y'X
+    BLAS.syrk!('U','T',1.0,X,λ,f.A.data) # f.A = λ*f.A + X'X 
+    BLAS.gemm!('T','N',1.0,y,X,λ,f.b) # f.b = λ*f.b + y'X
     f
 end
 
 function (f::Objective)(θ)
-    y = θ'f.A*θ; y .-= 2.0*f.b.*θ
+    y = θ'f.A*θ
+    BLAS.gemm!('N','N',-2.0,f.b,θ,1.0,y) # y .-= 2.0.*f.b*θ
     sum(y)
 end
 
@@ -70,10 +72,11 @@ end
 
 function code(y,X,state=nothing;λ=(1-1/30),γ=1e-3,kwds...)
     state = isnothing(state) ? Objective(y,X) : state
-    params = merge((maxit=1000, tol=1e-3, fast=true),kwds)
+    params = merge((maxit=1000, tol=1e-3, fast=true, verbose=0),kwds)
 
     update!(state,y,X,λ)
-    state.θ .= ProximalAlgorithms.FBS(state.θ,fs=state,fq=NormL1(γ);params...)
+    _, result = ProximalAlgorithms.FBS(state.θ,fs=state,fq=NormL1(γ);params...)
+    state.θ .= result
 
     state
 end
@@ -101,13 +104,14 @@ function marker(eeg,targets...;
     code_params...)
 
     # TODO: this thing about the lag doesn't actually make much sense ... I
-    # think that's for compensating for something we're not doing here
+    # think that's for compensating for something I'm ultimately not doing
+    # for now I'll leave it to compare results to the matlab code
 
     nt = length(targets)
     nlag = floor(Int,asframes(lag,eeg))+1
-    ntime = size(eeg,1)-L+1
+    ntime = size(eeg,1)-nlag+1
     window_len = floor(Int,asframes(window,eeg))
-    nwindows = div(ntime/window_len)
+    nwindows = div(ntime,window_len)
     λ = 1 - window_len/(asframes(estimation_length,eeg))
 
     results = map(_ -> Array{Float64}(undef,nwindows),targets)
@@ -115,7 +119,7 @@ function marker(eeg,targets...;
     atwindow(x;length,index) = x[(1:length) .+ (index-1)*length,:]
 
     states = fill(nothing,nt)
-    for w in 1:nwindows
+    @showprogress for w in 1:nwindows
         # TODO: decoding might work better if we allow for an intercept
         # at each step
         windows = atwindow.((eeg,targets...),length=window_len,index=w)
@@ -243,5 +247,3 @@ function attention(x1,x2;
     end
 
 end
-
-end # module EEGAttentionMarker

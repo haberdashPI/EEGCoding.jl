@@ -1,5 +1,10 @@
 export trf_train_speakers
 
+using Printf
+using DataFrames
+using StatsBase
+using Statistics
+
 ################################################################################
 # testing and training
 
