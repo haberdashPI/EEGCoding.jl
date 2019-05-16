@@ -6,6 +6,7 @@ version = "0.1.0"
 [deps]
 BSON = "fbb218c0-5317-5bc6-957e-2ee96dd4b1f0"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MATLAB = "10e44e05-a98a-55b3-a45b-ba969058deb6"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -27,6 +28,7 @@ ProximalOperators = "0.10"
 SampledSignals = "2.0"
 StatsBase = "0.30"
 Unitful = "0.15"
+Distributions = "0.19"
 julia = "0.7,1"
 
 [extras]
