@@ -61,16 +61,17 @@ function update!(f::Objective,y,X,λ)
     f
 end
 
-function (f::Objective)(θ)
-    y = θ'f.A*θ
+function (f::Objective)(θ,Aθ=BLAS.symm('L','U',f.A.data,θ))
+    y = θ'Aθ
     BLAS.gemm!('N','N',-2.0,f.b,θ,1.0,y) # y .-= 2.0.*f.b*θ
     sum(y)
 end
 
-function ProximalOperators.gradient!(y::AbstractArray,f::Objective,x::AbstractArray)
-    y .= f.b'
-    BLAS.symm!('L','U',2.0,f.A.data,x,-2.0,y) # y .= 2.0.*(f.A*x .- f.b')
-    f(x)
+function ProximalOperators.gradient!(y::AbstractArray,f::Objective,θ::AbstractArray)
+    Aθ = BLAS.symm('L','U',f.A.data,θ) # f.A*θ
+    f_ = f(θ,Aθ)
+    y .= 2.0.*(Aθ .- f.b')
+    f_
 end
 
 function code(y,X,state=nothing;λ=(1-1/30),γ=1e-3,kwds...)
