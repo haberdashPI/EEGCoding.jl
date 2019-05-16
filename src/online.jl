@@ -184,23 +184,28 @@ function attention(m1,m2;
     z = zeros(n)
     η = fill(0.3,n)
 
+    P(m,i) = (1/m)*sqrt(ρ_d[i])*exp(-0.5*ρ_d[i]*(log(m)-μ_d[i])^2)
+    function outerE(m1,m2,z)
+        p = 1/(1+exp(-z))
+        P1_a = P(m1,1); P1_u = P(m1,2) 
+        P2_u = P(m2,2); P2_a = P(m2,1) 
+        (p*P1_a*P2_u)/(p*P1_a*P2_u+(1-p)*P1_u*P2_a)
+    end
+
+    function outerM(E,ma,mb,i)
+        μ = ( sum(E.*log.(ma).+(1.0.-E).*log.(mb)) + n*μ₀[i] )/2n
+        s = sum( E.*((log.(ma).-μ_d[i]).^2) .+ 
+                 (1.0.-E).*((log.(mb).-μ_d[i]).^2) )
+        ρ = (2n*α₀[i])/( s + n*(2*β₀[i]+(μ_d[i]-μ₀[i]).^2) )
+
+        μ,ρ
+    end
+
     # outer EM
     for i in 1:outer_EM_iter
-        # calculating epsilon_k's in the current iteration (E-Step)
-        P_11 = @. (1/m1)*sqrt(ρ_d[1])*exp(-0.5*ρ_d[1]*(log(m1)-μ_d[1])^2)
-        P_12 = @. (1/m1)*sqrt(ρ_d[2]).*exp(-0.5*ρ_d[2]*(log(m1)-μ_d[2])^2)
-        P_21 = @. (1/m2)*sqrt(ρ_d[2]).*exp(-0.5*ρ_d[2]*(log(m2)-μ_d[2])^2)
-        P_22 = @. (1/m2)*sqrt(ρ_d[1]).*exp(-0.5*ρ_d[1]*(log(m2)-μ_d[1])^2)
-
-        p = @. (1/(1+exp(-z)))
-        
-        E = @. (p*P_11*P_21)/(p*P_11*P_21+(1-p)*P_12*P_22)
-                
-        # prior update
-        μ_d[1] = ( sum(E.*log.(m1).+(1.0.-E).*log.(m2)) + n*μ₀[1] )/(2*n)
-        μ_d[2] = ( sum(E.*log.(m2).+(1.0.-E).*log.(m1)) + n*μ₀[2] )/(2*n)
-        ρ_d[1] = (2*n*α₀[1])/( sum( E.*((log.(m1).-μ_d[1]).^2) .+ (1.0.-E).*((log.(m2).-μ_d[1]).^2) ) + n*(2*β₀[1]+(μ_d[1]-μ₀[1]).^2) )
-        ρ_d[2] = (2*n*α₀[2])/( sum( E.*((log.(m2).-μ_d[2]).^2) .+ (1.0.-E).*((log.(m1).-μ_d[2]).^2) ) + n*(2*β₀[2]+(μ_d[2]-μ₀[2]).^2) )
+        E = outerE.(m1,m2,z)
+        μ_d[1], ρ_d[1] = outerM(E,m1,m2,1)
+        μ_d[2], ρ_d[2] = outerM(E,m2,m1,2)
 
         # inner EM for updating z's and eta's (M-Step)
                 
@@ -213,7 +218,10 @@ function attention(m1,m2;
 
                 # Newton's Algorithm
                 for m in 1:newton_iter
-                    z_k[k] = z_k[k] - (z_k[k] - z_k₁[k] - σ_k₁[k]*(E[k-1] - exp(z_k[k])/(1+exp(z_k[k])))) / (1 + σ_k₁[k]*exp(z_k[k])/((1+exp(z_k[k]))^2))
+                    a = z_k[k] - z_k₁[k] - σ_k₁[k]*(E[k-1] - 
+                        exp(z_k[k])/(1+exp(z_k[k])))
+                    b = 1 + σ_k₁[k]*exp(z_k[k])/((1+exp(z_k[k]))^2)
+                    z_k[k] = z_k[k] -  a/b 
                 end
 
                 σ_k[k] = 1 / (1/σ_k₁[k] + exp(z_k[k])/((1+exp(z_k[k]))^2))
@@ -229,14 +237,13 @@ function attention(m1,m2;
                 σ_K[k] = σ_k[k] + S[k]^2*(σ_K[k+1] - σ_k₁[k+1])
 
             end
-
-
             z_k[1] = z_K[1]
             σ_k[1] = σ_K[1]
 
             # update the eta's
-            η = @.( (z_K[2:end]-z_K[1:end-1])^2+σ_K[2:end]+σ_K[1:end-1]-2*σ_K[2:end]*S+2b₀ )/(1+2*(a₀+1))
-
+            η = ((z_K[2:end].-z_K[1:end-1]).^2 + 
+                  σ_K[2:end] .+ σ_K[1:end-1] .- 2.0.*σ_K[2:end].*S .+ 2.0.*b₀) / 
+                (1.0.+2.0.*(a₀.+1.0))
         end
         
         # update the z's
