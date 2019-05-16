@@ -9,7 +9,7 @@ using Distributions
 # TODO: preprcoessing, add lag and add intercept
 
 ################################################################################
-"""
+raw"""
     code(y,X,[state];params...)
 
 Solve single step of online encoding or decoding problem. For decoding, y =
@@ -22,9 +22,9 @@ The coding coefficients are computed according to the following optimization
 problem
 
 ```math
-\\underset{\\theta}{\\mathrm{arg\\ min}} \\quad \\sum_i
-    \\lambda^{k-i} \\left\\lVert y_i - X_i\\theta \\right\\rVert^2 +
-    \\gamma\\left\\lVert\\theta\\right\\rVert
+\underset{\theta}{\mathrm{arg\ min}} \quad \sum_i
+    \lambda^{k-i} \left\lVert y_i - X_i\theta \right\rVert^2 +
+    \gamma\left\lVert\theta\right\rVert
 ```
 
 In the above equation, y is the output, X the input, and θ the parameters to
@@ -40,6 +40,7 @@ struct Objective <: ProximalOperators.Quadratic
     A::Symmetric{Float64,Matrix{Float64}}
     b::Matrix{Float64}
     θ::Matrix{Float64}
+
     function Objective(y::Union{AbstractVector,AbstractMatrix},
         X::AbstractMatrix)
 
@@ -67,7 +68,8 @@ function (f::Objective)(θ)
 end
 
 function ProximalOperators.gradient!(y::AbstractArray,f::Objective,x::AbstractArray)
-    y .= 2.0.*f.A*x .- 2.0.*f.b'
+    y .= f.b'
+    BLAS.symm!('L','U',2.0,f.A.data,x,-2.0,y) # y .= 2.0.*(f.A*x .- f.b')
     f(x)
 end
 
@@ -86,8 +88,10 @@ end
 """
     marker(eeg,targets...;params)
 
-Computes an attentional marker for each specified target, using the L1 norm
-of the online decoding coefficients.
+Computes an attentional marker, via decoding, for each specified target,
+using the L1 norm of the online decoding coefficients. 
+
+Encoding version not yet supported.
 """
 function marker
 end
@@ -102,6 +106,7 @@ function marker(eeg,targets...;
     lag=400ms,
     estimation_length=5s,
     min_norm=1e-4,
+    progress=true,
     code_params...)
 
     # TODO: this thing about the lag doesn't actually make much sense ... I
@@ -117,13 +122,15 @@ function marker(eeg,targets...;
 
     results = map(_ -> Array{Float64}(undef,nwindows),targets)
 
-    atwindow(x;length,index) = x[(1:length) .+ (index-1)*length,:]
+    atwindow(x,length,index) = view(x,(1:length) .+ (index-1)*length,:)
 
     states = fill(nothing,nt)
-    @showprogress for w in 1:nwindows
+    prog = progress isa Progress ? progress :
+        progress ? Progress(nwindows) : nothing
+    for w in 1:nwindows
         # TODO: decoding might work better if we allow for an intercept
         # at each step
-        windows = atwindow.((eeg,targets...),length=window_len,index=w)
+        windows = atwindow.((eeg,targets...),window_len,w)
         eegw = windows[1]
         states = map(windows[2:end],states,1:nt) do targetw,state,ti
             state = code(targetw,eegw,state;λ=λ,code_params...)
@@ -131,6 +138,7 @@ function marker(eeg,targets...;
 
             state
         end
+        isnothing(prog) || next!(prog)
     end
 
     results
@@ -141,13 +149,13 @@ end
     attention(x,y)
 
 Given two attention markers, x and y, use a batch, probabilistic state space
-model to compute a smoothed attentional state for x.
+model to compute a smoothed attentional state for x. 
 """
 function attention(m1,m2;
     outer_EM_iter = 20,
     inner_EM_iter = 20,
     newton_iter = 10,
-    ci = 0.9, # for #90 confidence intervals
+    confidence_interval = 0.9, 
 
     mean_p = 0.2,
     var_p = 5,
@@ -167,23 +175,17 @@ function attention(m1,m2;
     n = min(size(m1,1),size(m2,1))
 
     # Kalman filtering and smoothing variables
-    z_k = zeros(n+1)
-    z_k₁ = zeros(n+1)
-    σ_k = zeros(n+1)
-    σ_k₁ = zeros(n+1)
-
-    z_K = zeros(n+1)
-    σ_K = zeros(n+1)
-
+    z_k = zeros(n+1); z_k₁ = zeros(n+1); z_K = zeros(n+1)
+    σ_k = zeros(n+1); σ_k₁ = zeros(n+1); σ_K = zeros(n+1)
     S = zeros(n)
 
-    ρ_d = ρ_d₀
-    μ_d = μ_d₀
+    ρ_d = ρ_d₀; μ_d = μ_d₀
 
     # final results
     z = zeros(n)
     η = fill(0.3,n)
 
+    # outer E & M defintions
     P(m,i) = (1/m)*sqrt(ρ_d[i])*exp(-0.5*ρ_d[i]*(log(m)-μ_d[i])^2)
     function outerE(m1,m2,z)
         p = 1/(1+exp(-z))
@@ -250,6 +252,6 @@ function attention(m1,m2;
         z = z_K[2:end]
     end
 
-    scale = cquantile(Normal(),0.5(1-ci))
+    scale = cquantile(Normal(),0.5(1-confidence_interval))
     z, z .+ scale.*sqrt.(η), z .- scale.*sqrt.(η)
 end
