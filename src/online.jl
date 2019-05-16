@@ -142,109 +142,107 @@ end
 Given two attention markers, x and y, use a batch, probabilistic state space
 model to compute a smoothed attentional state for x.
 """
-function attention(x1,x2;
-    outer_EM_iter = 20,
-    inner_EM_iter = 20,
-    newton_iter = 10,
+function attention(m1,m2;
+    outer_EM_batch = 20,
+    inner_EM_batch = 20,
+    Newton_iter = 10,
+    c0 = 1.65, # for #90 confidence intervals
 
-    # inverse-gamma prior
-    μ_p = 0.2,
-    σ_p = 5,
-    a₀ = 2+μ_p^2/σ_p,
-    b₀ = μ_p*(a₀-1),
+    mean_p = 0.2,
+    var_p = 5,
+    a_0 = 2+mean_p^2/var_p,
+    b_0 = mean_p*(a_0-1))
 
-    # prior of attended (i = 1) and unattended (i = 2) sources
-    μ_d₀ = [0.88897,0.16195],
-    ρ_d₀ = [16.3344,8.2734],
-    α₀ = [5.7111e+02,1.7725e+03],
-    β₀ = [34.96324,2.1424e+02],
-    μ₀ = [0.88897,0.1619])
-
-    n = size(x1,1)
+    n = min(size(m1,1),size(m2,1))
 
     # Kalman filtering and smoothing variables
-    z_t = zeros(n+1,1); z_t₁ = zeros(n+1,1); z_T = zeros(n+1,1);
-    σ_t = zeros(n+1,1); σ_t₁ = zeros(n+1,1); σ_T = zeros(n+1,1);
-    S = zeros(n,1);
+    z_k = zeros(n+1,1)
+    z_k_1 = zeros(n+1,1)
+    sig_k = zeros(n+1,1)
+    sig_k_1 = zeros(n+1,1)
+
+    z_K = zeros(n+1,1)
+    sig_K = zeros(n+1,1)
+
+    S = zeros(n,1)
+
+    # tuned attended and unattended prior distributions based on a similar trial
+    alpha_0 = [5.7111e+02,1.7725e+03]
+    beta_0 = [34.96324,2.1424e+02]
+    mu_0 = [0.88897,0.1619]
+
+    # initialized attended and unattended Log-Normal distribution parameters
+    # based on a similar trial
+    rho_d_0 = [16.3344,8.2734]
+    mu_d_0 = [0.88897,0.16195]
+
+    rho_d = rho_d_0
+    mu_d = mu_d_0
 
     # batch state-space model outputs for the two attentional markers
-    z = zeros(n,1);
-    η = 0.3ones(n,1);
+    z_batch = zeros(n,1)
+    eta_batch = 0.3*ones(n,1)
 
-    ρ_d = ρ_d₀
-    μ_d = μ_d₀
-
-    P(x,i) = (1/x)*sqrt(ρ_d[i])*exp(-0.5ρ_d[i]*(log(x)-μ_d[i])^2)
-    function outerE(x1,x2,z)
-        p = 1/(1+exp(-z))
-        p*P(x1,1)*P(x2,1) /
-            (p*P(x1,1)*P(x2,2) + (1-p)*(P(x1,2)*P(x2,2)))
-    end
-    function outerM(E,x1,x2,i)
-        μ = ( sum(E.*log.(x1).+(1.0.-E).*log.(x2)) + n*μ₀[i] )/2n
-        ρ = (2n*α₀[i])/(
-            sum( E.*((log.(x1).-μ_d[i]).^2) .+
-                 (1.0.-E).*((log.(x2).-μ_d[i]).^2) ) +
-            n*(2*β₀[i]+(μ_d[i]-μ₀[i]).^2)
-        )
-        μ,ρ
-    end
-
-    ########################################
     # outer EM
-    for i in 1:outer_EM_iter
+    for i in 1:outer_EM_batch
         # calculating epsilon_k's in the current iteration (E-Step)
-        E = outerE.(x1,x2,z)
+                
 
+        P_11 = @. (1/m1)*sqrt(rho_d[1])*exp(-0.5*rho_d[1]*(log(m1)-mu_d[1])^2)
+        P_12 = @. (1/m1)*sqrt(rho_d[2]).*exp(-0.5*rho_d[2]*(log(m1)-mu_d[2])^2)
+        P_21 = @. (1/m2)*sqrt(rho_d[2]).*exp(-0.5*rho_d[2]*(log(m2)-mu_d[2])^2)
+        P_22 = @. (1/m2)*sqrt(rho_d[1]).*exp(-0.5*rho_d[1]*(log(m2)-mu_d[1])^2)
+
+        p = @. (1/(1+exp(-z_batch)))
+        
+        E = @. (p*P_11*P_21)/(p*P_11*P_21+(1-p)*P_12*P_22)
+                
         # prior update
-        μ_d[1], ρ_d[1] = outerM(E,x1,x2,1)
-        μ_d[2], ρ_d[2] = outerM(E,x1,x2,2)
+        mu_d[1] = ( sum(E.*log.(m1).+(1.0.-E).*log.(m2)) + n*mu_0[1] )/(2*n)
+        mu_d[2] = ( sum(E.*log.(m2).+(1.0.-E).*log.(m1)) + n*mu_0[2] )/(2*n)
+        rho_d[1] = (2*n*alpha_0[1])/( sum( E.*((log.(m1).-mu_d[1]).^2) .+ (1.0.-E).*((log.(m2).-mu_d[1]).^2) ) + n*(2*beta_0[1]+(mu_d[1]-mu_0[1]).^2) )
+        rho_d[2] = (2*n*alpha_0[2])/( sum( E.*((log.(m2).-mu_d[2]).^2) .+ (1.0.-E).*((log.(m1).-mu_d[2]).^2) ) + n*(2*beta_0[2]+(mu_d[2]-mu_0[2]).^2) )
 
-        ########################################
-        # inner EM for updating z's and η's (M-Step)
-        for j in 1:inner_EM_iter
-            ##############################
-            # inner E
+        # inner EM for updating z's and eta's (M-Step)
+                
+        for j in 1:inner_EM_batch
 
-            # filtering
-            for t in 2:n+1
-                z_t₁[t] = z_t[t-1];
-                σ_t₁[t] = σ_t[t-1] + η[t-1];
+            # Filtering
+            for kk in 2:n+1
+                z_k_1[kk] = z_k[kk-1]
+                sig_k_1[kk] = sig_k[kk-1] + eta_batch[kk-1]
 
-                # Newton's algorithm
-                for m=1:newton_iter
-                    a = z_t[t] - z_t₁[t] - σ_t₁[t]*(E[t-1] -
-                        exp(z_t[t])/(1+exp(z_t[t])))
-                    b = 1 + σ_t₁[t]*exp(z_t[t])/((1+exp(z_t[t]))^2)
-                    z_t[t] -= a / b;
+                # Newton's Algorithm
+                for m in 1:Newton_iter
+                    z_k[kk] = z_k[kk] - (z_k[kk] - z_k_1[kk] - sig_k_1[kk]*(E[kk-1] - exp(z_k[kk])/(1+exp(z_k[kk])))) / (1 + sig_k_1[kk]*exp(z_k[kk])/((1+exp(z_k[kk]))^2))
                 end
-                σ_t[t] = 1 / (1/σ_t₁[t] +
-                    exp(z_t[t])/((1+exp(z_t[t]))^2));
+
+                sig_k[kk] = 1 / (1/sig_k_1[kk] + exp(z_k[kk])/((1+exp(z_k[kk]))^2))
             end
 
-            # smoothing
-            z_T[end] = z_t[n+1];
-            σ_T[n+1] = σ_T[n+1];
+            # Smoothing
+            z_K[n+1] = z_k[n+1]
+            sig_K[n+1] = sig_K[n+1]
 
-            for t = reverse(1:n)
-                S[t] = σ_t[t]*1/σ_t₁[t+1];
-                z_T[t] = z_t[t] + S[t]*(z_T[t+1] - z_t₁[t+1])
-                σ_T[t] = σ_t[t] + S[t]^2*(σ_T[t+1] -
-                    σ_t₁[t+1]);
+            for kk = n:-1:1
+                S[kk] = sig_k[kk]/sig_k_1[kk+1]
+                z_K[kk] = z_k[kk] + S[kk]*(z_K[kk+1] - z_k_1[kk+1])
+                sig_K[kk] = sig_k[kk] + S[kk]^2*(sig_K[kk+1] - sig_k_1[kk+1])
+
             end
 
-            z_t[1] = z_T[1]
-            σ_t[1] = σ_T[1]
 
-            ####################
-            # inner M (update z and η)
-            η = ((z_T[2:end].-z_T[1:end-1]).^2 .+ σ_T[2:end] .+
-                 σ_T[1:end-1].-2 .* σ_T[2:end].*S .+ 2b₀) ./ (1+2*(a₀+1));
+            z_k[1] = z_K[1]
+            sig_k[1] = sig_K[1]
+
+            # update the eta's
+            eta_batch = @.( (z_K[2:end]-z_K[1:end-1])^2+sig_K[2:end]+sig_K[1:end-1]-2*sig_K[2:end]*S+2b_0 )/(1+2*(a_0+1))
+
         end
-
+        
         # update the z's
-        z = z_T[2:end];
+        z_batch = z_K[2:end]
     end
 
-    z,η 
+    z_batch, eta_batch
 end
