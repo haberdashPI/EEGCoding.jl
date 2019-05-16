@@ -181,10 +181,10 @@ function attention(x1,x2;
             (p*P(x1,1)*P(x2,2) + (1-p)*(P(x1,2)*P(x2,2)))
     end
     function outerM(E,x1,x2,i)
-        μ = ( sum(E.*log.(x1)+(1-E).*log.(x2)) + n*μ₀[i] )/2n
+        μ = ( sum(E.*log.(x1).+(1.0.-E).*log.(x2)) + n*μ₀[i] )/2n
         ρ = (2n*α₀[i])/(
             sum( E.*((log.(x1).-μ_d[i]).^2) .+
-                 (1.0-E).*((log.(x2)-μ_d[i]).^2) ) +
+                 (1.0.-E).*((log.(x2).-μ_d[i]).^2) ) +
             n*(2*β₀[i]+(μ_d[i]-μ₀[i]).^2)
         )
         μ,ρ
@@ -238,12 +238,13 @@ function attention(x1,x2;
 
             ####################
             # inner M (update z and η)
-            η = ((z_T[2:end]-z_T[1:end-1]).^2 + σ_T[2:end] +
-                 σ_T[1:end-1]-2*σ_T[2:end].*S + 2*b₀) / (1+2*(a₀+1));
+            η = ((z_T[2:end].-z_T[1:end-1]).^2 .+ σ_T[2:end] .+
+                 σ_T[1:end-1].-2 .* σ_T[2:end].*S .+ 2b₀) ./ (1+2*(a₀+1));
         end
 
         # update the z's
         z = z_T[2:end];
     end
 
+    z,η 
 end
