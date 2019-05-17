@@ -1,4 +1,4 @@
-export trf_train_speakers
+export withlags, trf_corr_cv, trf_train, find_envelope
 
 using Printf
 using DataFrames
@@ -92,6 +92,10 @@ function find_trf(stim,eeg::MxArray,i,dir,lags,method,bounds=all_indices;
 end
 
 function withlags(x,lags)
+    if lags == 0:0
+        x
+    end
+
     nl = length(lags)
     n,m = size(x)
     y = similar(x,size(x,1),m*nl)
@@ -180,6 +184,7 @@ function trf_corr_cv_(;prefix,eeg,stim_info,model,lags,indices,stim_fn,
     result
 end
 
+# TODO: this function might below in german_track
 function trf_train_speakers(group_name,files,stim_info;
     skip_bad_trials = false,
     maxlag=0.25,
@@ -219,6 +224,8 @@ function trf_train_speakers(group_name,files,stim_info;
     progress = Progress(n;desc="Analyzing...")
 
     for file in files
+        # TODO: this relies on experiment specific details how to generify
+        # this (or should we just move this whole function back)?
         eeg, stim_events, sid = load_subject(joinpath(data_dir,file),stim_info)
         lags = 0:round(Int,maxlag*samplerate(eeg))
         sid_str = @sprintf("%03d",sid)

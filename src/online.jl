@@ -96,12 +96,13 @@ Encoding version not yet supported.
 function marker
 end
 
-asframes(x,signal) = asseconds(x)*samplerate(signal)
+asframes(x,sr) = floor(Int,asseconds(x)*sr)
 asseconds(x) = x
 asseconds(x::Quantity) = ustrip(uconvert(s,x))
 
 function marker(eeg,targets...;
     # marker parameters
+    samplerate,
     window=250ms,
     lag=400ms,
     estimation_length=5s,
@@ -109,30 +110,31 @@ function marker(eeg,targets...;
     progress=true,
     code_params...)
 
-    # TODO: this thing about the lag doesn't actually make much sense ... I
-    # think that's for compensating for something I'm ultimately not doing
-    # for now I'll leave it to compare results to the matlab code
-
-    nt = length(targets)
-    nlag = floor(Int,asframes(lag,eeg))+1
-    ntime = size(eeg,1)-nlag+1
-    window_len = floor(Int,asframes(window,eeg))
-    nwindows = div(ntime,window_len)
-    λ = 1 - window_len/(asframes(estimation_length,eeg))
+    ntargets = length(targets)
+    nlag = asframes(lag,samplerate)
+    eeg = withlags(eeg,UnitRange(sort([0,-nlag])...))
+    window_len = asframes(window,samplerate)
+    nwindows = div(size(eeg,1)-nlag,window_len)
+    λ = 1 - window_len/(asframes(estimation_length,samplerate))
 
     results = map(_ -> Array{Float64}(undef,nwindows),targets)
 
-    atwindow(x,length,index) = view(x,(1:length) .+ (index-1)*length,:)
+    # TODO: handle cases where there are different end lengths
+    function select_windows(xs,length,index) 
+        start = (index-1)*length+1
+        stop = min(size.(xs,1)...,index*length)
+        map(x -> view(x,start:stop,:), xs)
+    end
 
-    states = fill(nothing,nt)
+    states = fill(nothing,ntargets)
     prog = progress isa Progress ? progress :
         progress ? Progress(nwindows) : nothing
     for w in 1:nwindows
         # TODO: decoding might work better if we allow for an intercept
         # at each step
-        windows = atwindow.((eeg,targets...),window_len,w)
+        windows = select_windows((eeg,targets...),window_len,w)
         eegw = windows[1]
-        states = map(windows[2:end],states,1:nt) do targetw,state,ti
+        states = map(windows[2:end],states,1:ntargets) do targetw,state,ti
             state = code(targetw,eegw,state;λ=λ,code_params...)
             results[ti][w] = max(norm(state.θ,1), min_norm)
 

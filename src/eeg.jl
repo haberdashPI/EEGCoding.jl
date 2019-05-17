@@ -1,4 +1,4 @@
-
+export EEGData, eegtrial, select_bounds
 
 Base.@kwdef struct EEGData
     label::Vector{String}
