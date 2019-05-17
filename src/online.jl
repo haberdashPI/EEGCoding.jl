@@ -62,13 +62,12 @@ function update!(f::Objective,y,X,λ)
 end
 
 function (f::Objective)(θ,Aθ=BLAS.symm('L','U',f.A.data,θ))
-    y = θ'Aθ
-    BLAS.gemm!('N','N',-2.0,f.b,θ,1.0,y) # y .-= 2.0.*f.b*θ
-    sum(y)
+    # sum(θ'Aθ .- 2.0.*f.b*θ)
+    sum(BLAS.gemm!('N','N',-2.0,f.b,θ,1.0,θ'Aθ)) 
 end
 
 function ProximalOperators.gradient!(y::AbstractArray,f::Objective,θ::AbstractArray)
-    Aθ = BLAS.symm('L','U',f.A.data,θ) # f.A*θ
+    Aθ = BLAS.symm!('L','U',1.0,f.A.data,θ,0.0,y) # f.A*θ
     f_ = f(θ,Aθ)
     y .= 2.0.*(Aθ .- f.b')
     f_
