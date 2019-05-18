@@ -6,6 +6,8 @@ using LinearAlgebra
 using ProgressMeter
 using Distributions
 
+export attention_marker, attention_prob
+
 # TODO: preprcoessing, add lag and add intercept
 
 ################################################################################
@@ -86,21 +88,21 @@ end
 
 ################################################################################
 """
-    marker(eeg,targets...;params)
+    attention_marker(eeg,targets...;params)
 
 Computes an attentional marker, via decoding, for each specified target,
 using the L1 norm of the online decoding coefficients. 
 
 Encoding version not yet supported.
 """
-function marker
+function attention_marker
 end
 
 asframes(x,sr) = floor(Int,asseconds(x)*sr)
 asseconds(x) = x
 asseconds(x::Quantity) = ustrip(uconvert(s,x))
 
-function marker(eeg,targets...;
+function attention_marker(eeg,targets...;
     # marker parameters
     samplerate,
     window=250ms,
@@ -108,6 +110,7 @@ function marker(eeg,targets...;
     estimation_length=5s,
     min_norm=1e-4,
     progress=true,
+    save_coefs=false,
     code_params...)
 
     ntargets = length(targets)
@@ -117,9 +120,11 @@ function marker(eeg,targets...;
     nwindows = div(size(eeg,1)-nlag,window_len)
     λ = 1 - window_len/(asframes(estimation_length,samplerate))
 
-    results = map(_ -> Array{Float64}(undef,nwindows),targets)
+    marker = map(_ -> Array{Float64}(undef,nwindows),targets)
+    coefs = save_coefs ? 
+        Array{Float64}(undef,nwindows,ntargets,size(eeg,2),size(targets[1],2)) :
+        nothing
 
-    # TODO: handle cases where there are different end lengths
     function select_windows(xs,length,index) 
         start = (index-1)*length+1
         stop = min(size.(xs,1)...,index*length)
@@ -136,29 +141,31 @@ function marker(eeg,targets...;
         eegw = windows[1]
         states = map(windows[2:end],states,1:ntargets) do targetw,state,ti
             state = code(targetw,eegw,state;λ=λ,code_params...)
-            results[ti][w] = max(norm(state.θ,1), min_norm)
+            save_coefs && (coefs[w,ti,:,:] = state.θ)
+            marker[ti][w] = max(norm(state.θ,1), min_norm)
 
             state
         end
         isnothing(prog) || next!(prog)
     end
 
-    results
+    save_coefs ? (marker, coefs) : marker
 end
 
 ################################################################################
 """
-    attention(x,y)
+    attention_prob(x,y)
 
 Given two attention markers, x and y, use a batch, probabilistic state space
 model to compute a smoothed attentional state for x. 
 """
-function attention(m1,m2;
+function attention_prob(m1,m2;
     outer_EM_iter = 20,
     inner_EM_iter = 20,
     newton_iter = 10,
     confidence_interval = 0.9, 
 
+    # parameters of the inverse-gamma prior on state-space variances
     mean_p = 0.2,
     var_p = 5,
     a₀ = 2+mean_p^2/var_p,
