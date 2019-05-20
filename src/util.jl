@@ -1,16 +1,17 @@
-export cachefn
+export cachefn, cache_dir
 using BSON: @save, @load
 
-cache_dir = Ref("")
-set_cache_dir!(str) = cache_dir[] = str
+cache_dir_ = Ref("")
+set_cache_dir!(str) = cache_dir_[] = str
+cache_dir() = cache_dir_[]
 
 function cachefn(prefix,fn,args...;oncache=() -> nothing,kwds...)
-    if cache_dir[] == ""
-        @warn "Using default cache directory `$(abspath(cache_dir))`;"*
+    if cache_dir_[] == ""
+        @warn "Using default cache directory `$(abspath(cache_dir_))`;"*
             " use EEGCoding.set_cache_dir! to change where results are cached."
     end
 
-    file = joinpath(cache_dir[],prefix * ".bson")
+    file = joinpath(cache_dir_[],prefix * ".bson")
     if isfile(file)
         oncache()
         @load file contents
