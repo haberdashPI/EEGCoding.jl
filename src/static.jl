@@ -1,6 +1,6 @@
 export withlags, trf_corr_cv, trf_train, find_envelope
 
-using MetaData
+using MetaArrays
 using Printf
 using DataFrames
 using StatsBase
@@ -16,7 +16,8 @@ function trf_train(;prefix,group_suffix="",indices,name="Training",
 
     cachefn(@sprintf("%s_avg%s",prefix,group_suffix),
         trf_train_;prefix=prefix,indices=indices,name=name,progress=progress,
-        oncache = () -> update!(progress,progress.counter+length(indices)),
+        oncache = () -> ProgressMeter.update!(progress,progress.counter+
+            length(indices)),
         kwds...)
 end
 
@@ -71,7 +72,7 @@ function find_envelope(stim,tofs,::Val{:audiospect})
     spect_fs = ShammaModel.fixed_fs
     resampled = Filters.resample(vec(stim),spect_fs/samplerate(stim))
     spect = audiospect(SampleBuf(resampled,spect_fs),progressbar=false)
-    Filters.resample(sum(getcontents(spect),2),tofs/spect_fs)
+    Filters.resample(vec(sum(spect,dims=2)),tofs/spect_fs)
 end
     
 
@@ -190,7 +191,7 @@ function trf_corr_cv_(;prefix,eeg,stim_info,model,lags,indices,stim_fn,
         stim_envelope,response = find_signals(nothing,stim,eeg,i,
             bounds=bounds[i],envelope_method=envelope_method)
 
-        subj_model_file = joinpath(cache_dir,@sprintf("%s_%02d",prefix,i))
+        subj_model_file = joinpath(cache_dir(),@sprintf("%s_%02d",prefix,i))
         # subj_model = load(subj_model_file,"contents")
         subj_model = cachefn(subj_model_file,find_trf,stim,eeg,i,-1,lags,
             "Shrinkage",bounds = bounds[i],
