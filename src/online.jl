@@ -69,7 +69,8 @@ function (f::Objective)(θ,Aθ=BLAS.symm('L','U',f.A.data,θ))
 end
 
 function ProximalOperators.gradient!(y::AbstractArray,f::Objective,θ::AbstractArray)
-    Aθ = BLAS.symm!('L','U',1.0,f.A.data,θ,0.0,y) # f.A*θ
+    # f.A*θ
+    Aθ = BLAS.symm!('L','U',1.0,f.A.data,θ,0.0,y) 
     f_ = f(θ,Aθ)
     y .= 2.0.*(Aθ .- f.b')
     f_
