@@ -21,7 +21,7 @@ function trf_train(;prefix,group_suffix="",indices,name="Training",
         kwds...)
 end
 
-function trf_train_(;prefix,eeg,stim_info,lags,indices,stim_fn,name="Training",
+function trf_train_(;prefix,eeg,lags,indices,stim_fn,name="Training",
         bounds=all_indices,progress=Progress(length(indices),1,desc=name),
         kwds...)
 
@@ -36,7 +36,6 @@ function trf_train_(;prefix,eeg,stim_info,lags,indices,stim_fn,name="Training",
 
         model = cachefn(@sprintf("%s_%02d",prefix,i),find_trf,stim,eeg,i,
             -1,lags,"Shrinkage";bounds=bounds[i],kwds...)
-        # model = find_trf(stim_envelope,response,-1,lags,"Shrinkage")
         if isempty(sum_model)
             sum_model = model
         else
@@ -77,26 +76,18 @@ end
     
 
 
-# function find_envelope(stim,tofs)
-#     mat "result = CreateLoudnessFeature($(stim.data),$(samplerate(stim)),$tofs)"
-#     get_mvariable(:result)
-# end
 find_signals(found_signals,stim,eeg,i;kwds...) = found_signals
-function find_signals(::Nothing,stim,eeg,i;bounds=all_indices,
-    envelope_method=:rms)
-
-    # envelope and neural response
-    fs = samplerate(eeg)
-    stim_envelope = find_envelope(stim,fs,method=envelope_method)
+function find_signals(::Nothing,stim,eeg,i;bounds=all_indices)
+    @assert method == "Shrinkage"
+    @assert dir == -1
 
     response = eegtrial(eeg,i)
+    min_len = min(size(stim,1),trunc(Int,size(response,2)));
 
-    min_len = min(size(stim_envelope,1),trunc(Int,size(response,2)));
-
-    stim_envelope = select_bounds(stim_envelope,bounds,min_len,fs,1)
+    stim = select_bounds(stim,bounds,min_len,fs,1)
     response = select_bounds(response,bounds,min_len,fs,2)
 
-    stim_envelope,response
+    stim,response
 end
 
 function find_trf(stim,eeg::MxArray,i,dir,lags,method;found_signals=nothing,
@@ -104,10 +95,9 @@ function find_trf(stim,eeg::MxArray,i,dir,lags,method;found_signals=nothing,
 
     @assert method == "Shrinkage"
     @assert dir == -1
-    stim_envelope,response = find_signals(found_signals,stim,eeg,i;kwds...)
 
     lags = collect(lags)
-    mat"$result = FindTRF($stim_envelope,$response',-1,[],[],($lags)',$method);"
+    mat"$result = FindTRF($stim,$response',-1,[],[],($lags)',$method);"
     result
 end
 
@@ -130,6 +120,9 @@ function withlags(x,lags)
     y
 end
 
+# TODO: we could probably make things even faster if we created the memory XX
+# and XY once. 
+
 scale(x) = mapslices(zscore,x,dims=1)
 # adds v to the diagonal of matrix (or tensor) x
 adddiag!(x,v) = x[CartesianIndex.(axes(x)...)] .+= v
@@ -138,10 +131,10 @@ function find_trf(stim,eeg::EEGData,i,dir,lags,method;found_signals=nothing,
 
     @assert method == "Shrinkage"
     @assert dir == -1
-    stim_envelope,response = find_signals(found_signals,stim,eeg,i;kwds...)
+    stim,response = find_signals(found_signals,stim,eeg,i;kwds...)
 
     X = withlags(scale(response'),.-reverse(lags))
-    Y = scale(stim_envelope)
+    Y = scale(stim)
 
     XX = X'X; XY = Y'X
     λ̄ = tr(XX)/size(X,2)
@@ -176,10 +169,9 @@ function single(x)
     first(x)
 end
 
-function trf_corr_cv_(;prefix,eeg,stim_info,model,lags,indices,stim_fn,
+function trf_corr_cv_(;prefix,eeg,model,lags,indices,stim_fn,
     bounds=all_indices,name="Testing",
-    progress=Progress(length(indices),1,desc=name),
-    envelope_method=:rms)
+    progress=Progress(length(indices),1,desc=name))
 
     result = zeros(length(indices))
 
@@ -188,21 +180,20 @@ function trf_corr_cv_(;prefix,eeg,stim_info,model,lags,indices,stim_fn,
         if size(stim,2) > 1
             stim = sum(stim,dims=2)
         end
-        stim_envelope,response = find_signals(nothing,stim,eeg,i,
-            bounds=bounds[i],envelope_method=envelope_method)
+        stim,response = find_signals(nothing,stim,eeg,i,
+            bounds=bounds[i])
 
         subj_model_file = joinpath(cache_dir(),@sprintf("%s_%02d",prefix,i))
         # subj_model = load(subj_model_file,"contents")
         subj_model = cachefn(subj_model_file,find_trf,stim,eeg,i,-1,lags,
             "Shrinkage",bounds = bounds[i],
-            found_signals = (stim_envelope,response),
-            envelope_method=envelope_method)
+            found_signals = (stim,response))
         n = length(indices)
         r1, r2 = (n-1)/n, 1/n
 
         pred = predict_trf(-1,response,(r1.*model .- r2.*subj_model),lags,
             "Shrinkage")
-        result[j] = single(cor(pred,stim_envelope))
+        result[j] = single(cor(pred,stim))
 
         next!(progress)
     end

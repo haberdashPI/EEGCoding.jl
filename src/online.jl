@@ -265,3 +265,10 @@ function attention_prob(m1,m2;
     scale = cquantile(Normal(),0.5(1-confidence_interval))
     z, z .+ scale.*sqrt.(η), z .- scale.*sqrt.(η)
 end
+
+function online_decode(;prefix,eeg,stim_info,lags,indices,stim_fn,
+    progress=Progress(length(indices),1))
+
+    #TODO: ...
+end
+
