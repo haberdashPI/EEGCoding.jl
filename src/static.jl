@@ -12,39 +12,46 @@ using DSP
 # testing and training
 
 function trf_train(;prefix,group_suffix="",indices,name="Training",
-    progress=Progress(length(indices),1,desc=name),kwds...)
+    sources,progress=Progress(length(indices)*length(sources),1,desc=name),
+    kwds...)
 
     cachefn(@sprintf("%s_avg%s",prefix,group_suffix),
         trf_train_;prefix=prefix,indices=indices,name=name,progress=progress,
-        oncache = () -> ProgressMeter.update!(progress,progress.counter+
-            length(indices)),
+        sources=sources,
+        __oncache__ = () -> ProgressMeter.update!(progress,progress.counter+
+            length(indices)*length(sources)),
         kwds...)
 end
 
 function trf_train_(;prefix,eeg,lags,indices,stim_fn,name="Training",
-        bounds=all_indices,progress=Progress(length(indices),1,desc=name),
-        kwds...)
+        sources,bounds=all_indices,progress,kwds...)
 
-    sum_model = Float64[]
+    sum_models = Array{Matrix{Float64}}[]
 
     for i in indices
-        stim = stim_fn(i)
-        # for now, make signal monaural
-        if size(stim,2) > 1
-            stim = sum(stim,dims=2)
-        end
+        # TODO: implement find_trf to handle multiple stimuli at once? (reduces
+        # slow repeated call to withlags) PROFILE first (I think most of the
+        # time is spent computing the regression)
+        for (source_index,source) in enumerate(sources)
+            stim = stim_fn(i,source_index)
+            # for now, make signal monaural
+            if size(stim,2) > 1
+                stim = sum(stim,dims=2)
+            end
 
-        model = cachefn(@sprintf("%s_%02d",prefix,i),find_trf,stim,eeg,i,
-            -1,lags,"Shrinkage";bounds=bounds[i],kwds...)
-        if isempty(sum_model)
-            sum_model = model
-        else
-            sum_model .+= model
+            model = cachefn(@sprintf("%s_%02d",prefix,i),find_trf,stim,
+                eeg,i,-1,lags,"Shrinkage";bounds=bounds[i],kwds...)
+
+            if isempty(sum_model)
+                sum_models[source_index] = model
+            else
+                sum_models[source_index] .+= model
+            end
+            next!(progress)
         end
-        next!(progress)
     end
 
-    sum_model
+    sum_models
 end
 
 find_envelope(stim,tofs;method=:rms) = find_envelope(stim,tofs,Val(method))
@@ -90,17 +97,6 @@ function find_signals(::Nothing,stim,eeg,i;bounds=all_indices)
     stim,response
 end
 
-function find_trf(stim,eeg::MxArray,i,dir,lags,method;found_signals=nothing,
-    kwds...)
-
-    @assert method == "Shrinkage"
-    @assert dir == -1
-
-    lags = collect(lags)
-    mat"$result = FindTRF($stim,$response',-1,[],[],($lags)',$method);"
-    result
-end
-
 function withlags(x,lags)
     if lags == 0:0
         x
@@ -143,24 +139,23 @@ function find_trf(stim,eeg::EEGData,i,dir,lags,method;found_signals=nothing,
     reshape(result,size(response,1),length(lags),size(Y,2))
 end
 
-function predict_trf(dir,response::MxArray,model,lags,method)
-    mat"[~,$result] = FindTRF([],[],-1,$response',$model,($lags)',$method);"
-    result
-end
-
-function predict_trf(dir,response::Array,model,lags,method)
+function predict_trf(dir,lag_response::Array,model,lags,method)
     @assert method == "Shrinkage"
     @assert dir == -1
 
     withlags(scale(response'),.-reverse(lags)) * reshape(model,:,size(model,3))
 end
 
-function trf_corr_cv(;prefix,indices=indices,group_suffix="",name="Training",
-    progress=Progress(length(indices),1,desc=name),kwds...)
+function trf_corr_cv(;prefix,indices,group_suffix="",name="Training",
+    sources,progress=Progress(length(indices)*length(sources),1,desc=name),
+    kwds...)
 
     cachefn(@sprintf("%s_corr%s",prefix,group_suffix),
-        trf_corr_cv_;prefix=prefix,indices=indices,name=name,progress=progress,
-        oncache = () -> update!(progress,progress.counter+length(indices)),
+        trf_corr_cv_;prefix=prefix,indices=indices,name=name,
+        progress=progress,sources=sources,
+        __oncache__ = () -> 
+            ProgressMeter.update!(progress,
+                progress.counter+length(indices)*length(sources)),
         kwds...)
 end
 
@@ -170,32 +165,31 @@ function single(x)
 end
 
 function trf_corr_cv_(;prefix,eeg,model,lags,indices,stim_fn,
-    bounds=all_indices,name="Testing",
-    progress=Progress(length(indices),1,desc=name))
+    bounds=all_indices,sources,progress)
 
     result = zeros(length(indices))
 
     for (j,i) in enumerate(indices)
-        stim = stim_fn(i)
-        if size(stim,2) > 1
-            stim = sum(stim,dims=2)
+        for (source_index, source) in sources
+            stim = stim_fn(i,source_index)
+            stim,response = find_signals(nothing,stim,eeg,i,
+                bounds=bounds[i])
+
+            subj_model_file = 
+                joinpath(cache_dir(),@sprintf("%s_%02d",prefix,i))
+            # subj_model = load(subj_model_file,"contents")
+            subj_model = cachefn(subj_model_file,find_trf,stim,eeg,i,-1,lags,
+                "Shrinkage",bounds = bounds[i],
+                found_signals = (stim,response))
+            n = length(indices)
+            r1, r2 = (n-1)/n, 1/n
+
+            pred = predict_trf(-1,response,(r1.*model .- r2.*subj_model),lags,
+                "Shrinkage")
+            result[j] = single(cor(pred,stim))
+
+            next!(progress)
         end
-        stim,response = find_signals(nothing,stim,eeg,i,
-            bounds=bounds[i])
-
-        subj_model_file = joinpath(cache_dir(),@sprintf("%s_%02d",prefix,i))
-        # subj_model = load(subj_model_file,"contents")
-        subj_model = cachefn(subj_model_file,find_trf,stim,eeg,i,-1,lags,
-            "Shrinkage",bounds = bounds[i],
-            found_signals = (stim,response))
-        n = length(indices)
-        r1, r2 = (n-1)/n, 1/n
-
-        pred = predict_trf(-1,response,(r1.*model .- r2.*subj_model),lags,
-            "Shrinkage")
-        result[j] = single(cor(pred,stim))
-
-        next!(progress)
     end
     result
 end

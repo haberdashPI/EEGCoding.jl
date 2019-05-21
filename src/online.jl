@@ -6,7 +6,7 @@ using LinearAlgebra
 using ProgressMeter
 using Distributions
 
-export attention_marker, attention_prob
+export attention_marker, attention_prob, online_decode
 
 # TODO: preprcoessing, add lag and add intercept
 
@@ -116,6 +116,7 @@ function attention_marker(eeg,targets...;
 
     ntargets = length(targets)
     nlag = asframes(lag,samplerate)
+
     eeg = withlags(eeg,UnitRange(sort([0,-nlag])...))
     window_len = asframes(window,samplerate)
     nwindows = div(size(eeg,1)-nlag,window_len)
@@ -266,9 +267,48 @@ function attention_prob(m1,m2;
     z, z .+ scale.*sqrt.(η), z .- scale.*sqrt.(η)
 end
 
-function online_decode(;prefix,eeg,stim_info,lags,indices,stim_fn,
-    progress=Progress(length(indices),1))
+function online_decode(;prefix,indices,group_suffix="",sources,
+    bounds=all_indices,progress=Progress(length(indices)*length(sources),1),
+    kwds...)
 
-    #TODO: ...
+    cachefn(@sprintf("%s_probs%s",prefix,group_suffix),
+        online_decode_;prefix=prefix,indices=indices,
+        progress=progress,sources=sources,
+        __oncache__ = () ->
+            ProgressMeter.update!(progress,
+                progress.counter+length(indices)*length(sources)),
+        kwds...)
 end
 
+function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
+    attention_min_norm=1e-3,params...)
+    defaults = (maxit=250,tol=1e-2,progress=false,lag=250ms,
+        min_norm=1e-16,estimation_length=10s,γ=2e-3)
+    
+    norms = Vector{Vector{NTuple{4,Vector{Float64}}}}(undef,length(indices))
+
+    for (j,i) in enumerate(indices)
+        markers = cachefn(@sprintf("%s_attn_%03d",prefix,i),attention_marker,
+            eegtrial(eeg,i)',
+            map(source_i -> stim_fn(i,source_i),eachindex(sources))...;
+            samplerate=samplerate(eeg),
+            __oncache__ = function()
+                for i in eachindex(sources); next!(progress); end
+            end,
+            merge(defaults,params.data)...)
+        
+        μ = mean(mean.(markers))
+        nmarkers = map(x -> x./μ, markers)
+
+        norms[j] = map(enumerate(nmarkers)) do (source_i,marker)
+            others = nmarkers[setdiff(1:length(sources),source_i)]
+            probs = attention_prob(max.(attention_min_norm,marker),
+                max.(attention_min_norm,others...))
+            next!(progress)
+
+            marker,probs...
+        end
+    end
+
+    norms
+end

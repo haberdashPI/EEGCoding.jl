@@ -1,4 +1,4 @@
-export EEGData, eegtrial, select_bounds, all_indices
+export EEGData, eegtrial, select_bounds, all_indices, no_indices
 
 Base.@kwdef struct EEGData
     label::Vector{String}
@@ -35,6 +35,7 @@ Base.isempty(x::AllIndices) = false
 struct NoIndices end
 const no_indices = NoIndices()
 Base.isempty(x::NoIndices) = true
+(x::NoIndices)(row) = no_indices
 
 toindex(x,min,fs) = clamp.(round.(Int,x.*fs),1,min)
 
