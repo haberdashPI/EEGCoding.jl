@@ -119,7 +119,7 @@ function attention_marker(eeg,targets...;
 
     eeg = withlags(eeg,UnitRange(sort([0,-nlag])...))
     window_len = asframes(window,samplerate)
-    nwindows = div(size(eeg,1)-nlag,window_len)
+    nwindows = cld(size(eeg,1)-nlag,window_len)
     λ = 1 - window_len/(asframes(estimation_length,samplerate))
 
     marker = map(_ -> Array{Float64}(undef,nwindows),targets)
@@ -282,7 +282,7 @@ end
 
 function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
     attention_min_norm=1e-3,params...)
-    defaults = (maxit=250,tol=1e-2,progress=false,lag=250ms,
+    defaults = (window=250ms,maxit=250,tol=1e-2,progress=false,lag=250ms,
         min_norm=1e-16,estimation_length=10s,γ=2e-3)
     
     norms = Vector{Vector{NTuple{4,Vector{Float64}}}}(undef,length(indices))
