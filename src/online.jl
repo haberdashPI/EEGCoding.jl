@@ -279,7 +279,7 @@ function online_decode(;prefix,indices,group_suffix="",sources,
         __oncache__ = () ->
             if progress isa Progress
                 ProgressMeter.update!(progress,
-                    progress.counter+length(indices)*length(sources)),
+                    progress.counter+length(indices)*length(sources))
             end,
             kwds...)
 end
@@ -297,7 +297,9 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
             map(source_i -> stim_fn(i,source_i),eachindex(sources))...;
             samplerate=samplerate(eeg),
             __oncache__ = function()
-                for i in eachindex(sources); next!(progress); end
+                for i in eachindex(sources)
+                    (progress isa Progress) && next!(progress)
+                end
             end,
             merge(defaults,params.data)...)
         
@@ -308,8 +310,7 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
             others = nmarkers[setdiff(1:length(sources),source_i)]
             probs = attention_prob(max.(attention_min_norm,marker),
                 max.(attention_min_norm,others...))
-            next!(progress)
-
+            (progress isa Progress) && next!(progress)
             marker,probs...
         end
     end
