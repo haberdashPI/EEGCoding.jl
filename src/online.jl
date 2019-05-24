@@ -29,8 +29,9 @@ problem
     \gamma\left\lVert\theta\right\rVert
 ```
 
-In the above equation, y is the output, X the input, and θ the parameters to
-be solved for.
+In the above equation, y is the output, X the input, θ the parameters to
+be solved for, k the current window and i includes all windows including the
+current window.
 
 Returns an `Objective` object (see below).
 """
@@ -92,7 +93,7 @@ end
     attention_marker(eeg,targets...;params)
 
 Computes an attentional marker, via decoding, for each specified target,
-using the L1 norm of the online decoding coefficients. 
+using the L1 norm of the online encoding/decoding coefficients. 
 
 Encoding version not yet supported.
 """
@@ -159,7 +160,8 @@ end
     attention_prob(x,y)
 
 Given two attention markers, x and y, use a batch, probabilistic state space
-model to compute a smoothed attentional state for x. 
+model to compute the logit-probability that x is being attended to, as
+opposed to y.
 """
 function attention_prob(m1,m2;
     outer_EM_iter = 20,
