@@ -285,16 +285,22 @@ function online_decode(;prefix,indices,group_suffix="",sources,
 end
 
 function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
-    attention_min_norm=1e-3,params...)
+    attention_min_norm=1e-3,bounds=all_indices,params...)
     defaults = (window=250ms,maxit=250,tol=1e-2,progress=false,lag=250ms,
         min_norm=1e-16,estimation_length=10s,γ=2e-3)
     
     norms = Vector{Vector{NTuple{4,Vector{Float64}}}}(undef,length(indices))
 
     for (j,i) in enumerate(indices)
+        cur_bounds = bounds[i]
+        stimuli = map(source_i -> stim_fn(i,source_i),eachindex(sources)) 
+        # TODO: preoprly specify min length
+        bounded_stim = map(s->select_bounds(s,bounds[i],samplerate(eeg),1),stimuli)
+        response = select_bounds(eegtrial(eeg,i),bounds[i],samplerate(eeg),2)
+
         markers = cachefn(@sprintf("%s_attn_%03d",prefix,i),attention_marker,
-            eegtrial(eeg,i)',
-            map(source_i -> stim_fn(i,source_i),eachindex(sources))...;
+            response,
+            bounded_stim...;
             samplerate=samplerate(eeg),
             __oncache__ = function()
                 for i in eachindex(sources)

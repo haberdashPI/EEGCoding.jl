@@ -81,8 +81,6 @@ function find_envelope(stim,tofs,::Val{:audiospect})
     Filters.resample(vec(sum(spect,dims=2)),tofs/spect_fs)
 end
     
-
-
 find_signals(found_signals,stim,eeg,i;kwds...) = found_signals
 function find_signals(::Nothing,stim,eeg,i;bounds=all_indices)
     @assert method == "Shrinkage"
