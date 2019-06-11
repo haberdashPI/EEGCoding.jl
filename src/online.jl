@@ -294,9 +294,9 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
     for (j,i) in enumerate(indices)
         cur_bounds = bounds[i]
         stimuli = map(source_i -> stim_fn(i,source_i),eachindex(sources)) 
-        # TODO: preoprly specify min length
-        bounded_stim = map(s->select_bounds(s,bounds[i],samplerate(eeg),1),stimuli)
-        response = select_bounds(eegtrial(eeg,i),bounds[i],samplerate(eeg),2)
+        n = min(minimum(s->size(s,1),stimuli),size(eegtrial(eeg,i),2))
+        bounded_stim = map(s->select_bounds(s,bounds[i],n,samplerate(eeg),1),stimuli)
+        response = select_bounds(eegtrial(eeg,i),bounds[i],n,samplerate(eeg),2)
 
         markers = cachefn(@sprintf("%s_attn_%03d",prefix,i),attention_marker,
             response,
