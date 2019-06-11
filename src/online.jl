@@ -297,9 +297,10 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
         n = min(minimum(s->size(s,1),stimuli),size(eegtrial(eeg,i),2))
         bounded_stim = map(s->select_bounds(s,bounds[i],n,samplerate(eeg),1),stimuli)
         response = select_bounds(eegtrial(eeg,i),bounds[i],n,samplerate(eeg),2)
+        # response = eegtrial(eeg,i)
 
         markers = cachefn(@sprintf("%s_attn_%03d",prefix,i),attention_marker,
-            response,
+            response',
             bounded_stim...;
             samplerate=samplerate(eeg),
             __oncache__ = function()
