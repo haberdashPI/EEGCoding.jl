@@ -270,7 +270,7 @@ function attention_prob(m1,m2;
 end
 
 function online_decode(;prefix,indices,group_suffix="",sources,
-    bounds=all_indices,progress=Progress(length(indices)*length(sources),1),
+    progress=Progress(length(indices)*length(sources),1),
     kwds...)
 
     cachefn(@sprintf("%s_probs%s",prefix,group_suffix),
