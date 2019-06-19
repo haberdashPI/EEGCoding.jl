@@ -81,6 +81,18 @@ function find_envelope(stim,tofs,::Val{:audiospect})
     envelope = vec(sum(spect,dims=2))
     Filters.resample(envelope,ustrip(tofs*Δt(spect)))
 end
+
+# TODO: leverage new shammamodel add feature which allows for selective
+# computation of specific filters of audiospec
+function find_envelope(stim,tofs,::Val{:sparsespect})
+    @assert size(stim,2) == 1
+
+    spect_fs = ShammaModel.fixed_fs
+    resampled = Filters.resample(vec(stim),spect_fs/samplerate(stim))
+    spect = audiospect(SampleBuf(resampled,spect_fs),progressbar=false)
+    envelope = vec(sum(spect,dims=2))
+    Filters.resample(envelope,ustrip(tofs*Δt(spect)))
+end
     
 find_signals(found_signals,stim,eeg,i;kwds...) = found_signals
 function find_signals(::Nothing,stim,eeg,i;bounds=all_indices)
