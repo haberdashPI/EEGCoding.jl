@@ -277,10 +277,7 @@ function online_decode(;prefix,indices,group_suffix="",sources,
         online_decode_;prefix=prefix,indices=indices,
         progress=progress,sources=sources,
         __oncache__ = () ->
-            if progress isa Progress
-                ProgressMeter.update!(progress,
-                    progress.counter+length(indices)*length(sources))
-            end,
+            progress_update!(progress,length(indices)*length(sources)),
             kwds...)
 end
 

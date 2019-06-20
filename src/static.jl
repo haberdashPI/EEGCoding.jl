@@ -18,8 +18,8 @@ function trf_train(;prefix,group_suffix="",indices,name="Training",
     cachefn(@sprintf("%s_avg%s",prefix,group_suffix),
         trf_train_;prefix=prefix,indices=indices,name=name,progress=progress,
         sources=sources,
-        __oncache__ = () -> ProgressMeter.update!(progress,progress.counter+
-            length(indices)*length(sources)),
+        __oncache__ = () -> 
+            progress_update!(progress,length(indices)*length(sources)),
         kwds...)
 end
 
@@ -163,8 +163,7 @@ function trf_corr_cv(;prefix,indices,group_suffix="",name="Training",
         trf_corr_cv_;prefix=prefix,indices=indices,name=name,
         progress=progress,sources=sources,
         __oncache__ = () -> 
-            ProgressMeter.update!(progress,
-                progress.counter+length(indices)*length(sources)),
+            progress_update!(progress,length(indices)*length(sources)),
         kwds...)
 end
 

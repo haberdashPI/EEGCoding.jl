@@ -1,9 +1,14 @@
 export cachefn, cache_dir
 using BSON: @save, @load
+using Distributed
 
 cache_dir_ = Ref("")
 set_cache_dir!(str) = cache_dir_[] = str
 cache_dir() = cache_dir_[]
+
+progress_update!(prog::ProgressMeter,n=1) =
+    ProgressMeter.update!(prog,prog.counter+n)
+progress_update!(prog::Bool,n=1) = @assert !prog
 
 function cachefn(prefix,fn,args...;__oncache__=() -> nothing,kwds...)
     if cache_dir_[] == ""
