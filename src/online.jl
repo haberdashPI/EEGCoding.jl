@@ -135,7 +135,7 @@ function attention_marker(eeg,targets...;
     end
 
     states = fill(nothing,ntargets)
-    prog = progress isa Progress ? progress :
+    prog = !(progress isa Bool) ? progress :
         progress ? Progress(nwindows) : nothing
     for w in 1:nwindows
         # TODO: decoding might work better if we allow for an intercept
@@ -290,6 +290,8 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
         min_norm=1e-16,estimation_length=10s,γ=2e-3)
     
     norms = Vector{Vector{NTuple{4,Vector{Float64}}}}(undef,length(indices))
+    prog = !(progress isa Bool) ? progress :
+        progress ? Progress(nwindows) : nothing
 
     for (j,i) in enumerate(indices)
         cur_bounds = bounds[i]
@@ -305,7 +307,7 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
             samplerate=samplerate(eeg),
             __oncache__ = function()
                 for i in eachindex(sources)
-                    (progress isa Progress) && next!(progress)
+                    !isnothing(progress) && next!(progress)
                 end
             end,
             merge(defaults,params.data)...)
@@ -317,7 +319,7 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
             others = nmarkers[setdiff(1:length(sources),source_i)]
             probs = attention_prob(max.(attention_min_norm,marker),
                 max.(attention_min_norm,others...))
-            (progress isa Progress) && next!(progress)
+            !isnothing(progress) && next!(progress)
             marker,probs...
         end
     end
