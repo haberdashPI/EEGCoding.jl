@@ -5,6 +5,8 @@ using SampledSignals
 using LinearAlgebra
 using ProgressMeter
 using Distributions
+using Distributed
+using SharedArrays
 
 export attention_marker, attention_prob, online_decode
 
@@ -286,38 +288,35 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
     defaults = (window=250ms,maxit=250,tol=1e-2,progress=false,lag=250ms,
         min_norm=1e-16,estimation_length=10s,γ=2e-3)
     
-    norms = Vector{Vector{NTuple{4,Vector{Float64}}}}(undef,length(indices))
-    prog = !(progress isa Bool) ? progress :
-        progress ? Progress(nwindows) : nothing
+    norms = SharedArray{Vector{NTuple{4,Vector{Float64}}}}(length(indices))
+    
+    parallel_progress(progress) do progress
+        @distributed for (j,i) in enumerate(indices)
+            cur_bounds = bounds[i]
+            stimuli = map(source_i -> stim_fn(i,source_i),eachindex(sources)) 
+            n = min(minimum(s->size(s,1),stimuli),size(eegtrial(eeg,i),2))
+            bounded_stim = map(s->select_bounds(s,bounds[i],n,samplerate(eeg),1),stimuli)
+            response = select_bounds(eegtrial(eeg,i),bounds[i],n,samplerate(eeg),2)
+            # response = eegtrial(eeg,i)
 
-    for (j,i) in enumerate(indices)
-        cur_bounds = bounds[i]
-        stimuli = map(source_i -> stim_fn(i,source_i),eachindex(sources)) 
-        n = min(minimum(s->size(s,1),stimuli),size(eegtrial(eeg,i),2))
-        bounded_stim = map(s->select_bounds(s,bounds[i],n,samplerate(eeg),1),stimuli)
-        response = select_bounds(eegtrial(eeg,i),bounds[i],n,samplerate(eeg),2)
-        # response = eegtrial(eeg,i)
+            markers = cachefn(@sprintf("%s_attn_%03d",prefix,i),attention_marker,
+                response',
+                bounded_stim...;
+                samplerate=samplerate(eeg),
+                __oncache__ = () -> progress_update!(progress,length(sources)),
+                merge(defaults,params.data)...)
+            
+            μ = mean(mean.(markers))
+            nmarkers = map(x -> x./μ, markers)
 
-        markers = cachefn(@sprintf("%s_attn_%03d",prefix,i),attention_marker,
-            response',
-            bounded_stim...;
-            samplerate=samplerate(eeg),
-            __oncache__ = function()
-                for i in eachindex(sources)
-                    !isnothing(progress) && next!(progress)
-                end
-            end,
-            merge(defaults,params.data)...)
-        
-        μ = mean(mean.(markers))
-        nmarkers = map(x -> x./μ, markers)
+            norms[j] = map(enumerate(nmarkers)) do (source_i,marker)
+                others = nmarkers[setdiff(1:length(sources),source_i)]
+                probs = attention_prob(max.(attention_min_norm,marker),
+                    max.(attention_min_norm,others...))
+                progress_update!(progress)
 
-        norms[j] = map(enumerate(nmarkers)) do (source_i,marker)
-            others = nmarkers[setdiff(1:length(sources),source_i)]
-            probs = attention_prob(max.(attention_min_norm,marker),
-                max.(attention_min_norm,others...))
-            !isnothing(progress) && next!(progress)
-            marker,probs...
+                marker,probs...
+            end
         end
     end
 
