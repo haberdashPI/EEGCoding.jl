@@ -275,11 +275,15 @@ function online_decode(;prefix,indices,group_suffix="",sources,
     progress=Progress(length(indices)*length(sources),1),
     kwds...)
 
+    # @info "Check cache"
+
     cachefn(@sprintf("%s_probs%s",prefix,group_suffix),
         online_decode_;prefix=prefix,indices=indices,
         progress=progress,sources=sources,
-        __oncache__ = () ->
-            progress_update!(progress,length(indices)*length(sources)),
+        __oncache__ = function()
+                # @info "Updating progress"
+                progress_update!(progress,length(indices)*length(sources))
+            end,
             kwds...)
 end
 
@@ -287,11 +291,19 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
     attention_min_norm=1e-3,bounds=all_indices,params...)
     defaults = (window=250ms,maxit=250,tol=1e-2,progress=false,lag=250ms,
         min_norm=1e-16,estimation_length=10s,γ=2e-3)
+
+    # @info "main for loop"
+    # @show typeof(progress)
     
-    norms = SharedArray{Vector{NTuple{4,Vector{Float64}}}}(length(indices))
-    
-    parallel_progress(progress) do progress
-        @distributed for (j,i) in enumerate(indices)
+    norms = parallel_progress(progress) do progress
+        # @info "Inner progress"
+        # @show indices
+        if isempty(indices)
+            return []
+        end
+        @distributed (vcat) for i in indices
+        # mapreduce(vcat,indices) do i
+            # @info "In mapreduce"
             cur_bounds = bounds[i]
             stimuli = map(source_i -> stim_fn(i,source_i),eachindex(sources)) 
             n = min(minimum(s->size(s,1),stimuli),size(eegtrial(eeg,i),2))
@@ -309,7 +321,7 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
             μ = mean(mean.(markers))
             nmarkers = map(x -> x./μ, markers)
 
-            norms[j] = map(enumerate(nmarkers)) do (source_i,marker)
+            result = map(enumerate(nmarkers)) do (source_i,marker)
                 others = nmarkers[setdiff(1:length(sources),source_i)]
                 probs = attention_prob(max.(attention_min_norm,marker),
                     max.(attention_min_norm,others...))
@@ -317,8 +329,12 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
 
                 marker,probs...
             end
+            [result]
+            # progress_update!(progress,length(stimuli))
+            # [[Tuple(rand(5) for i in 1:4) for j in 1:length(stimuli)]]
         end
     end
+    # @show typeof(norms)
 
     norms
 end
