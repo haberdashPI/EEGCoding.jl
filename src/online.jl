@@ -7,6 +7,7 @@ using ProgressMeter
 using Distributions
 using Distributed
 using SharedArrays
+using CuArrays
 
 export attention_marker, attention_prob, online_decode
 
@@ -41,18 +42,18 @@ function code
 end # see full defintion below
 
 # defines the objective of optimization
-struct Objective <: ProximalOperators.Quadratic
-    A::Symmetric{Float64,Matrix{Float64}}
-    b::Matrix{Float64}
-    θ::Matrix{Float64}
+struct Objective{M} <: ProximalOperators.Quadratic
+    A::M
+    b::M
+    θ::M
 
-    function Objective(y::Union{AbstractVector,AbstractMatrix},
-        X::AbstractMatrix)
+    function Objective(y::Union{AbstractVector,AbstractMatrix},X::M) where 
+        {M <: AbstractMatrix}
 
-        new(
-            Symmetric(zeros(size(X,2),size(X,2))),
-            zeros(size(y,2),size(X,2)),
-            zeros(size(X,2),size(y,2))
+        new{M}(
+            M(zeros(size(X,2),size(X,2))),
+            M(zeros(size(y,2),size(X,2))),
+            M(zeros(size(X,2),size(y,2)))
         )
     end
 end
@@ -61,30 +62,61 @@ ProximalOperators.fun_expr(f::Objective) = "x ↦ x'Ax - 2bx"
 ProximalOperators.fun_params(f::Objective) = "" # parameters will be too large...
 
 function update!(f::Objective,y,X,λ)
-    BLAS.syrk!('U','T',1.0,X,λ,f.A.data) # f.A = λ*f.A + X'X 
+    BLAS.syrk!('U','T',1.0,X,λ,f.A) # f.A = λ*f.A + X'X 
     BLAS.gemm!('T','N',1.0,y,X,λ,f.b) # f.b = λ*f.b + y'X
     f
 end
 
-function (f::Objective)(θ,Aθ=BLAS.symm('L','U',f.A.data,θ))
+function update!(f::Objective{<:CuArray{T}},y,X,λ) where T
+    CuArrays.CUBLAS.syrk!('U','T',T(1.0),X,T(λ),f.A) # f.A = λ*f.A + X'X 
+    CuArrays.CUBLAS.gemm!('T','N',T(1.0),y,X,T(λ),f.b) # f.b = λ*f.b + y'X
+    f
+end
+
+function (f::Objective)(θ,Aθ=BLAS.symm('L','U',f.A,θ))
     # sum(θ'Aθ .- 2.0.*f.b*θ)
     sum(BLAS.gemm!('N','N',-2.0,f.b,θ,1.0,θ'Aθ)) 
 end
 
+function (f::Objective{<:CuArray{T}})(θ,Aθ=BLAS.symm('L','U',f.A,θ)) where T
+    # sum(θ'Aθ .- 2.0.*f.b*θ)
+    sum(CuArrays.CUBLAS.gemm!('N','N',T(-2.0),f.b,θ,T(1.0),θ'Aθ)) 
+end
+
+
 function ProximalOperators.gradient!(y::AbstractArray,f::Objective,θ::AbstractArray)
-    # f.A*θ
-    Aθ = BLAS.symm!('L','U',1.0,f.A.data,θ,0.0,y) 
+    Aθ = BLAS.symm!('L','U',1.0,f.A,θ,0.0,y) 
     f_ = f(θ,Aθ)
     y .= 2.0.*(Aθ .- f.b')
     f_
 end
 
-function code(y,X,state=nothing;λ=(1-1/30),γ=1e-3,kwds...)
+function ProximalOperators.gradient!(y::CuArray{T},f::Objective{<:CuArray{T}},
+    θ::CuArray{T}) where T
+
+    Aθ = CuArrays.CUBLAS.symm!('L','U',T(1.0),f.A,θ,T(0.0),y) 
+    f_ = f(θ,Aθ)
+    y .= T(2.0).*(Aθ .- f.b')
+    f_
+end
+
+function code(y,X,state=nothing;gpu=false,λ=(1-1/30),γ=1e-3,kwds...)
+    if gpu
+        # note: we avoid using the function `cu`, because of some odd stuff
+        # going on with SubArray types (which y and X are)
+        T = Float64
+        y = CuArray{T}(y)
+        X = CuArray{T}(X)
+    else
+        T = eltype(y)
+    end
     state = isnothing(state) ? Objective(y,X) : state
-    params = merge((maxit=1000, tol=1e-3, fast=true, verbose=0),kwds)
+    params = merge((maxit=1000, tol=1e-3, fast=true, verbose=false),kwds)
 
     update!(state,y,X,λ)
-    _, result = ProximalAlgorithms.FBS(state.θ,fs=state,fq=NormL1(γ);params...)
+    # _, result = ProximalAlgorithms.FBS(state.θ,fs=state,fq=NormL1(γ);params...)
+    _, result = ProximalAlgorithms.forwardbackward(state.θ,f=state,g=NormL1(T(γ));
+        params...)
     state.θ .= result
 
     state
