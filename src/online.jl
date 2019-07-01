@@ -89,12 +89,12 @@ end
 function code(y,X,state=nothing;gpu=false,λ=(1-1/30),γ=1e-3,kwds...)
     T, A, y, X = code_init(Val(gpu),y,X)
     state = isnothing(state) ? Objective(y,X,A) : state
-    params = merge((maxit=1000, tol=1e-3, fast=true, verbose=false),kwds)
+    params = merge((maxit=1000, tol=1e-3, fast=true, verbose=0),kwds)
 
     update!(state,y,X,λ)
-    # _, result = ProximalAlgorithms.FBS(state.θ,fs=state,fq=NormL1(γ);params...)
-    _, result = ProximalAlgorithms.forwardbackward(state.θ,f=state,g=NormL1(T(γ));
-        params...)
+    _, result = ProximalAlgorithms.FBS(state.θ,fs=state,fq=NormL1(T(γ));params...)
+    # _, result = ProximalAlgorithms.forwardbackward(state.θ,f=state,g=NormL1(T(γ));
+    #     params...)
     state.θ .= result
 
     state
