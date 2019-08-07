@@ -94,8 +94,8 @@ end
     
 find_signals(found_signals,stim,eeg,i;kwds...) = found_signals
 function find_signals(::Nothing,stim,eeg,i;bounds=all_indices)
-    @assert method == "Shrinkage"
-    @assert dir == -1
+    # @assert method == "Shrinkage"
+    # @assert dir == -1
 
     response = eegtrial(eeg,i)
     min_len = min(size(stim,1),trunc(Int,size(response,2)));
