@@ -302,9 +302,7 @@ function online_decode_(;prefix,eeg,lags,indices,stim_fn,sources,progress,
     defaults = (window=250ms,maxit=250,tol=1e-2,progress=false,lag=250ms,
     min_norm=1e-16,estimation_length=10s,γ=2e-3)
 
-    if isempty(indices)
-        return []
-    end
+    isempty(indices) && (return [])
 
     mapreduce(vcat,indices) do i
         cur_bounds = bounds[i]
